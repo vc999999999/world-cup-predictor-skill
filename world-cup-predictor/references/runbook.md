@@ -63,6 +63,13 @@ Keep compact structured evidence:
     }
   ],
   "auxiliary_markets": [],
+  "evidence_priority": [
+    {
+      "rank": "P0",
+      "label": "current-year World Cup data",
+      "facts_used": []
+    }
+  ],
   "historical_context": [
     {
       "match": "",
@@ -70,6 +77,15 @@ Keep compact structured evidence:
       "timeframe": "",
       "facts": [],
       "conclusion": "",
+      "limits": ""
+    }
+  ],
+  "upset_radar": [
+    {
+      "match": "",
+      "label": "low|medium|high|insufficient",
+      "cold_score_refs": [],
+      "signals": [],
       "limits": ""
     }
   ],
@@ -87,16 +103,48 @@ Keep compact structured evidence:
 }
 ```
 
-Only include player names that support a decision. Do not store full squads unless the user asks. Keep `historical_context` compact: recent form, head-to-head, tournament results, team/player stats, or market-relevant trends only. Label source/timeframe and limits so older data cannot masquerade as current availability or current multipliers.
+Only include player names that support a decision. Do not store full squads unless the user asks. Keep `historical_context` compact: recent form, head-to-head, tournament results, team/player stats, or market-relevant trends only. Label source/timeframe and limits so older data cannot masquerade as current availability or current multipliers. Use `evidence_priority` to record why current-year World Cup data was weighted above older or proxy evidence. Use `upset_radar` to store the compact reasoning behind `爆冷雷达`, especially exact-score (`crs`) cold-score references and missing score data.
+
+### `analysis-brief.md`
+
+Create this compressed model-input file when the request has multiple matches, many sources, or long extracted text:
+
+```markdown
+## Scope
+- US fixture date:
+- Shanghai display date:
+- Matches covered:
+
+## Current Facts
+- Match identity:
+- Current odds:
+- Availability:
+
+## Priority Evidence
+- P0 current-year World Cup:
+- P1 current availability:
+- P2 recent national-team:
+- P3 club/player context:
+- P4 older history:
+
+## Decisions
+| Match | Main Direction | Score Refs | Upset Radar | Selected References | Key Risk |
+|---|---|---|---|---|---|
+
+## Gaps
+- ...
+```
+
+Keep it under roughly 150 lines. Do not paste raw HTML, full tables, full squads, or duplicate source URLs already in `source-ledger.md`. Final reasoning should use this compressed brief plus `facts.json`, not raw extraction dumps.
 
 ### `decision-matrix.md`
 
 Use one row per candidate:
 
 ```markdown
-| Match | Sporttery Pool | Selection | Multiplier | Implied % | Evidence | Risk | Status |
-|---|---|---|---:|---:|---|---|---|
-| 周五029 Team A vs Team B | had 胜平负 | 主胜 | 1.35 | 74.1 | ... | ... | stable selected |
+| Match | Sporttery Pool | Selection | Multiplier | Implied % | Evidence | Upset Signal | Risk | Status |
+|---|---|---|---:|---:|---|---|---|---|
+| 周五029 Team A vs Team B | had 胜平负 | 主胜 | 1.35 | 74.1 | ... | 冷门低 | ... | stable selected |
 ```
 
 Status values: `stable selected`, `high selected`, `watch`, `rejected`, `blocked`.
@@ -138,6 +186,19 @@ When another skill, agent, or later session needs to continue the work, hand off
 ## Data Freshness Gate
 
 Current Sporttery multipliers and current fixture verification are mandatory for 竞彩 odds-based references. Broad "today" requests must list every fixture on the US fixture date even when some matches have missing pools. Historical player/team data may support reasoning, but it cannot substitute for current Sporttery multipliers or current availability. Polymarket and other auxiliary markets cannot replace missing Sporttery data.
+
+## Evidence Priority Gate
+
+After mandatory current fixture and current multiplier checks pass, rank football-performance evidence in this order:
+
+1. `P0 current-year World Cup`: current tournament matches, group situation, team stats, scorelines, discipline, travel/rest, and current squad news from this year's World Cup.
+2. `P1 current availability`: confirmed or reputable current lineup, injuries, suspensions, rotation, and player roles for the specific match.
+3. `P2 recent national-team form`: matches after the current squad cycle began, especially competitive fixtures.
+4. `P3 club/player context`: club-season form, xG, minutes, role, and fitness only for players expected to feature.
+5. `P4 older history`: head-to-head, older tournament records, long-run style, or coach history.
+6. `P5 auxiliary sentiment`: exchange or overseas market sentiment, social/news context, and other non-Sporttery signals.
+
+When these conflict, prefer the lower-numbered priority unless there is a named data-quality reason not to. Record the conflict in `facts.json.data_gaps` or `decision-matrix.md` rather than smoothing it away.
 
 ## Pre-Final Validation Hook
 

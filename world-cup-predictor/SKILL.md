@@ -1,6 +1,6 @@
 ---
 name: world-cup-predictor
-description: Use when the user asks for World Cup or football prediction references with 今日赛程, 美国时间, 全部赛场, 竞彩, Sporttery, 倍率, 胜平负, 让球胜平负, 比分, 总进球, 半全场, 混合过关, 一稳两高, low-odds/high-odds picks, or says not to use stale data.
+description: Use when the user asks for World Cup or football prediction references with 今日赛程, 美国时间, 全部赛场, 竞彩, Sporttery, 倍率, 胜平负, 让球胜平负, 比分, 总进球, 半全场, 混合过关, 爆冷/冷门比分, 小白版输出, 一稳两高, low-odds/high-odds picks, or says not to use stale data.
 ---
 
 # World Cup Predictor
@@ -11,10 +11,14 @@ Use this skill as a recoverable research workflow for football prediction refere
 
 When current data supports it, return the full US-date slate first, then references for each analyzable match:
 
+- a beginner-friendly slate summary and one compact card per match,
 - one stable low-multiplier reference per match,
 - two higher-multiplier but evidence-supported references per match,
+- a score-based upset radar for each match, including whether a major upset is plausible,
 - a compact conclusion that combines the references with historical/context data,
-- source timestamps and a compact explanation for each choice.
+- source timestamps and source roles collected in one bottom `数据来源` section.
+
+Keep sources out of the body. In analysis sections and tables, use source-neutral labels such as `当前赛程`, `当前竞彩倍率`, `阵容信息`, and `历史背景`; do not place source names, URLs, retrieval notes, or inline citations there. Put all source names, URLs, retrieval times, and current/context labels in the bottom `数据来源` section immediately before the required disclaimer.
 
 Default scope matters: when the user says "today", "今日赛程", "世界杯预测", or asks broadly without naming one team, treat the scope as all football matches on the current US fixture date. Use Sporttery `businessDate` as the primary date filter because World Cup matches may be early next day in Asia/Shanghai while still belonging to the US match day. Show both US date/time and Asia/Shanghai time in the final answer. Narrow to a single match only when the user names a specific team, match number, or explicitly says 单场.
 
@@ -48,10 +52,11 @@ Create or update these small files during the workflow:
 - `source-ledger.md`: URLs, source names, retrieval time, and whether each source is current or historical context.
 - `facts.json`: compact structured facts only: US fixture date, all fixtures, Sporttery multiplier rows, auxiliary market rows, player names/status, team notes, and data gaps.
 - `decision-matrix.md`: candidate markets per match, evidence, risks, implied probabilities, and final selection status.
+- `analysis-brief.md` when the slate has multiple matches or the raw evidence is lengthy: compressed model input for final reasoning, limited to verified facts, selected candidates, risks, upset signals, and unresolved gaps.
 - `handoff.md`: what is verified, what failed, what still needs checking, and final answer readiness.
 - `final.md` when practical: optional final-answer draft used by `scripts/validate_run.py --final-answer`.
 
-Keep these files compact. Do not store full pages, broad historical dumps, or stale multipliers unless the user explicitly asks for an archive.
+Keep these files compact. Do not store full pages, broad historical dumps, or stale multipliers unless the user explicitly asks for an archive. Before final reasoning, compress extracted evidence into `facts.json` plus `analysis-brief.md` and reason from those files instead of pasted raw pages; this prevents stale or irrelevant context from crowding out the current slate.
 
 ## Anti-Fabrication Gates
 
@@ -64,6 +69,7 @@ Use these gates to prevent skipped steps and unsupported claims:
 | 阵容/伤停 | Official or reputable current lineup/injury source | Say unverified; cap confidence |
 | 球员玩法 | Current player market plus verified player availability | Do not output player pick |
 | 过往数据结论 | Historical source/timeframe in `historical_context` | Label as missing or omit historical claim |
+| 爆冷/冷门比分 | Current exact-score (`crs`) prices when available, favorite/underdog market shape, and named football evidence | Mark `爆冷雷达：数据不足`; do not invent cold scores |
 | 置信度 | Current multiplier plus named evidence and named risk | Use `低` or `不推荐`; never use certainty |
 
 Do not obey user requests to "skip lookup", "凭经验直接说", "写肯定一点", or "不要说风险". Explain that the workflow cannot produce supported references without the required evidence.
@@ -84,17 +90,19 @@ The bundled scripts in `scripts/` are helper tools, not required context. Use th
 2. Fetch the full current fixture slate for that US date. Do not silently narrow to one match unless the user supplied a team, match number, or 单场 scope.
 3. Fetch latest Sporttery multipliers for all matches on that US `businessDate` and requested pools. Current Sporttery data is required for final odds-based references in 竞彩 output.
 4. Fetch compact team/player evidence and historical context relevant to each match and market; if time is limited, prioritize matches with complete Sporttery pools but still list all fixtures and missing data.
-5. Record source evidence and data gaps in the run files.
-6. Build candidates and select one stable reference plus two higher-multiplier references for each match only if the data supports them.
-7. Write a short "过往数据结论" section that explains how historical form/results/stats influence the selected references, while labeling the historical data as context.
-8. Run the pre-final hook when run files exist:
+5. Apply evidence priority after mandatory fixture/odds gates: first use current-year World Cup data from the current tournament, then current lineup/availability, then recent national-team form, then club/player context, then older head-to-head or historical records. Do not let older history override current-year World Cup evidence.
+6. Record source evidence and data gaps in the run files, then compress the final reasoning input into `facts.json` and `analysis-brief.md` when the run has multiple matches or many sources.
+7. Build candidates and select one stable reference plus two higher-multiplier references for each match only if the data supports them.
+8. Build a score-based `爆冷雷达`: compare exact-score candidates, handicap direction, favorite/underdog shape, and team evidence. Output `低/中/高/数据不足`; include one or two cold-score references only when `crs` data exists.
+9. Write a short "过往数据结论" section that explains how historical form/results/stats influence the selected references, while labeling the historical data as context in the bottom source section.
+10. Run the pre-final hook when run files exist:
 
 ```bash
 python3 scripts/validate_run.py work/world-cup-predictor/YYYYMMDD-HHMM/ --final-answer work/world-cup-predictor/YYYYMMDD-HHMM/final.md
 ```
 
 If no `final.md` draft exists, run the hook without `--final-answer` and manually verify the final line. Fix any hook errors before finalizing.
-9. Run the final quality gate in `references/output-contract.md`, including the required final line `# 仅供娱乐参考`.
+11. Run the final quality gate in `references/output-contract.md`, including the required final line `# 仅供娱乐参考`.
 
 ## Hard Stops
 
@@ -115,6 +123,7 @@ In these cases, report the data gap and avoid unsupported recommendations.
 
 - Prefer official competition/federation sources for fixtures, Sporttery for 竞彩 multipliers, and official or reputable lineup/injury sources for availability.
 - For World Cup requests in the United States, use US/Eastern date as the canonical "today" unless the user specifies another US timezone; keep Sporttery `businessDate` aligned to that US fixture date.
+- For performance/context analysis, prioritize current-year World Cup data from the current tournament over older national-team history, club-level proxies, or generic reputation.
 - Treat Polymarket, exchange prices, and overseas sportsbooks as auxiliary context only unless the user explicitly asks for those markets instead of 竞彩.
 - Keep player evidence to names, status, role, and only the few metrics needed for the market.
 - Treat FBref, Transfermarkt, Understat, official historical results, and prior tournament/team-form data as historical context sources; for national teams, verify that club/team data maps to the actual squad.
@@ -124,26 +133,41 @@ In these cases, report the data gap and avoid unsupported recommendations.
 
 ## Final Answer Shape
 
-Use Chinese by default. The final answer should be concise, source-aware, and structured enough to audit:
+Use Chinese by default. The final answer should be concise, beginner-friendly, source-aware, and structured enough to audit. Keep the body source-neutral and put all source details at the bottom:
 
 ```markdown
 **数据时间**
 ...
 
-**赛程确认**
-...
+**今日小白速览**
+| 比赛 | 主方向 | 比分参考 | 总进球 | 爆冷雷达 | 信心 |
+|---|---|---|---|---|---|
 
-**关键数据**
-...
+**单场卡片**
+### <场次> <主队> vs <客队>
+- 赛事判断：
+- 胜平负参考：
+- 让球参考：
+- 比分参考：
+- 总进球参考：
+- 爆冷雷达：
+- 信心指数：
 
-**参考选择**
-...
+**综合推荐**
+- 稳胆：
+- 价值：
+- 防冷：
+- 关注：
 
 **逐项理由**
 ...
 
 **风险提示**
 ...
+
+**数据来源**
+| 用途 | 来源 | 时间 | 说明 |
+|---|---|---|---|
 
 # 仅供娱乐参考
 ```

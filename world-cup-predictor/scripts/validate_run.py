@@ -14,6 +14,20 @@ from typing import Any
 REQUIRED_FILES = ["source-ledger.md", "facts.json", "decision-matrix.md", "handoff.md"]
 FINAL_DISCLAIMER = "# 仅供娱乐参考"
 SELECTED_STATUSES = ("stable selected", "high selected")
+SOURCE_HEADING = "数据来源"
+REQUIRED_FINAL_SECTIONS = ("今日小白速览", "单场卡片", "综合推荐", "爆冷雷达")
+SOURCE_NAME_TOKENS = (
+    "Sporttery",
+    "Polymarket",
+    "FIFA",
+    "FBref",
+    "Transfermarkt",
+    "Understat",
+    "Covers",
+    "Kalshi",
+    "Bet365",
+    "中国体彩网",
+)
 
 
 @dataclass
@@ -51,12 +65,10 @@ def load_facts(path: Path, result: ValidationResult) -> dict[str, Any]:
     return payload
 
 
-def final_line(path: Path, result: ValidationResult) -> str:
+def final_text(path: Path, result: ValidationResult) -> str:
     if not path:
         return ""
-    text = read_text(path, result)
-    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
-    return lines[-1] if lines else ""
+    return read_text(path, result)
 
 
 def validate_required_files(run_dir: Path, result: ValidationResult) -> None:
@@ -82,6 +94,10 @@ def validate_facts(facts: dict[str, Any], result: ValidationResult) -> None:
         result.errors.append("facts.json must include sporttery_odds")
     if "historical_context" not in facts:
         result.warnings.append("facts.json has no historical_context; final conclusion may be under-supported")
+    if "evidence_priority" not in facts:
+        result.warnings.append("facts.json has no evidence_priority; current-year World Cup priority may be unclear")
+    if "upset_radar" not in facts:
+        result.warnings.append("facts.json has no upset_radar; final answer must still include 爆冷雷达")
     if "data_gaps" not in facts:
         result.errors.append("facts.json must include data_gaps, even when empty")
 
@@ -117,6 +133,47 @@ def validate_handoff(run_dir: Path, result: ValidationResult) -> None:
             result.errors.append(f"handoff.md missing heading: {heading}")
 
 
+def validate_final_answer(path: Path, result: ValidationResult) -> None:
+    text = final_text(path, result)
+    if not text:
+        return
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        result.errors.append("final answer is empty")
+        return
+    if lines[-1] != FINAL_DISCLAIMER:
+        result.errors.append(f"final line must be exactly {FINAL_DISCLAIMER!r}")
+
+    source_index = next((idx for idx, line in enumerate(lines) if SOURCE_HEADING in line), -1)
+    if source_index < 0:
+        result.errors.append("final answer must include a bottom 数据来源 section before the disclaimer")
+        body = "\n".join(lines[:-1])
+    elif source_index >= len(lines) - 1:
+        result.errors.append("数据来源 section must appear before the final disclaimer")
+        body = "\n".join(lines[:-1])
+    else:
+        body = "\n".join(lines[:source_index])
+        source_block = "\n".join(lines[source_index:-1])
+        if "|" not in source_block:
+            result.warnings.append("数据来源 section should be a compact table with source roles and timestamps")
+
+    for section in REQUIRED_FINAL_SECTIONS:
+        if section not in text:
+            result.errors.append(f"final answer missing required beginner-friendly section or label: {section}")
+
+    if "http://" in body or "https://" in body:
+        result.errors.append("final body contains URL before 数据来源; move source URLs to the bottom source table")
+    if "来源：" in body or "数据来源：" in body:
+        result.errors.append("final body contains inline source label before 数据来源; move it to the bottom source table")
+
+    body_source_names = [token for token in SOURCE_NAME_TOKENS if token in body]
+    if body_source_names:
+        result.warnings.append(
+            "final body contains source names before 数据来源; consider moving them to the bottom table: "
+            + ", ".join(body_source_names)
+        )
+
+
 def validate(run_dir: Path | str, final_answer: Path | str | None = None) -> ValidationResult:
     root = Path(run_dir)
     result = ValidationResult()
@@ -127,9 +184,7 @@ def validate(run_dir: Path | str, final_answer: Path | str | None = None) -> Val
     validate_decision_matrix(root, result)
     validate_handoff(root, result)
     if final_answer:
-        line = final_line(Path(final_answer), result)
-        if line != FINAL_DISCLAIMER:
-            result.errors.append(f"final line must be exactly {FINAL_DISCLAIMER!r}")
+        validate_final_answer(Path(final_answer), result)
     return result
 
 

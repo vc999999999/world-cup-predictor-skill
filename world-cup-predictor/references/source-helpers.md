@@ -15,6 +15,21 @@ Use sources by evidence role, not by habit:
 | Team/player context | FBref, Transfermarkt, Understat, official stats | context only, not a substitute for current Sporttery multipliers |
 | Historical conclusion context | official historical results, FBref, worldfootballR-derived data, FIFA match reports, recent form pages | use only for 过往数据结论; label source/timeframe |
 
+## Evidence Priority
+
+Do not treat all football facts equally. Current fixture identity and current Sporttery multipliers are mandatory gates for 竞彩 answers. After those gates pass, rank performance/context evidence in this order:
+
+| Priority | Evidence Type | How To Use |
+|---|---|---|
+| `P0` | Current-year World Cup data from the current tournament | Highest-weight football context: current tournament results, scorelines, group/table pressure, team stats, discipline, rest/travel, and squad news |
+| `P1` | Current match availability | Confirmed or reputable lineup, injuries, suspensions, rotation risk, and player roles for this match |
+| `P2` | Recent national-team form after the current squad cycle began | Use when current-year World Cup sample is thin; prefer competitive matches |
+| `P3` | Club/player context | Use only for players expected to feature; helpful for role, minutes, xG, fitness, and form |
+| `P4` | Older history and head-to-head | Context only; never outweigh current tournament evidence |
+| `P5` | Auxiliary market or media sentiment | Risk/context only; never replace Sporttery multipliers or current football evidence |
+
+When priorities conflict, name the conflict and prefer the lower-numbered priority unless the source is stale, ambiguous, or lower quality. Store the decision in `facts.json.evidence_priority` and the unresolved issue in `data_gaps`.
+
 ## Sporttery First Rule
 
 When the request uses 竞彩 language, the final recommendation table must use Sporttery multipliers. If Sporttery does not return the requested match or pool, mark that market `blocked` or `watch`; do not substitute Polymarket, Covers, Kalshi, Bet365, or any other market as if it were Sporttery.
@@ -82,3 +97,7 @@ Use these labels in `source-ledger.md`:
 Only `current` Sporttery evidence can support final 竞彩倍率 claims. Auxiliary markets may support narrative context but not the final multiplier column.
 
 Historical context can support the "过往数据结论" section, but it must be marked as historical/context and should stay compact: one to three facts per match, only when they explain the selected references or confidence.
+
+## Final Source Presentation
+
+Keep the final body clean for beginners. Do not scatter URLs, source names, or retrieval times through match cards or reasoning sections. In the body, use neutral labels such as `当前赛程`, `当前竞彩倍率`, `阵容信息`, and `历史背景`. Put source names, URLs, retrieval times, current/context labels, and notes in the bottom `数据来源` table immediately before `# 仅供娱乐参考`.
