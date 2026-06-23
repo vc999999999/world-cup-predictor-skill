@@ -14,6 +14,11 @@ Use sources by evidence role, not by habit:
 | Lineups/availability | official match center, team channel, reliable live-score lineup page | required for player-specific markets |
 | Team/player context | FBref, Transfermarkt, Understat, official stats | context only, not a substitute for current Sporttery multipliers |
 | Historical conclusion context | official historical results, FBref, worldfootballR-derived data, FIFA match reports, recent form pages | use only for 过往数据结论; label source/timeframe |
+| Team strength baseline | FIFA Men's World Ranking, EA FC (SoFIFA) national team ratings | primary strength proxy for data-sparse teams; FIFA ranking for official context, EA FC OVR/ATT/MID/DEF for granular profile |
+| Core player star factor | `references/core-players.json` (curated EA FC elite players by national team) | qualitative signal for data-sparse teams; a single elite player (OVR >= 85) on a weak team can create an upset vector that team OVR alone misses |
+| Head-to-head context | 11v11.com national team H2H records | historical matchup patterns; useful for psychological edges and style matchups |
+| Odds movement signal | Sporttery odds snapshots (odds_tracker.py) | cross-run odds drift detection; reflects non-public info especially for weak-team matches |
+| External news/qualitative signal | BBC Sport RSS (scripts/bbc_rss_fetch.py), other reputable news feeds | injuries, suspensions, squad rotation, tactical changes; labeled as P5 auxiliary sentiment only |
 
 ## Evidence Priority
 
@@ -74,6 +79,32 @@ Install dependencies only when needed:
 python3 -m pip install -r scripts/requirements.txt
 ```
 
+## New Enhancement Scripts
+
+- `scripts/fifa_rating_fetch.py`: FIFA Men's World Ranking + EA FC (SoFIFA) national team ratings. Use `--mode profile --matchup "Team A vs Team B"` for unified team strength profiles. EA FC ratings are the primary strength proxy for teams without FBref/Understat coverage.
+- `scripts/h2h_fetch.py`: Head-to-head national team records from 11v11.com. Use `--home "Team A" --away "Team B"` for matchup history. Particularly valuable for weak teams where club data is unavailable.
+- `scripts/odds_tracker.py`: Odds movement tracking across Sporttery fetch runs. Use `--action snapshot` after each Sporttery fetch, then `--action movement` to detect significant drift. Large movements (7%+) are strong signals for data-sparse matches.
+- `scripts/bbc_rss_fetch.py`: BBC Sport football RSS fetcher with keyword-based signal extraction. Filters for injury, suspension, squad, and tactical news. Outputs structured signals with severity and category. Use `--days 3 --pretty` to get recent qualitative signals. Label outputs as P5 auxiliary sentiment only.
+
+Usage examples:
+
+```bash
+# Team strength profiles
+python3 scripts/fifa_rating_fetch.py --mode profile --matchup "Costa Rica vs Ecuador" --pretty
+
+# Head-to-head
+python3 scripts/h2h_fetch.py --home "Japan" --away "Australia" --pretty
+
+# Odds snapshot (after sporttery_fetch.py)
+python3 scripts/odds_tracker.py --action snapshot --sporttery-file facts_sporttery.json --run-dir work/world-cup-predictor/20260623-1400/
+
+# Odds movement report
+python3 scripts/odds_tracker.py --action movement --match "日本" --pretty
+
+# BBC Sport RSS signals (last 3 days, pretty output)
+python3 scripts/bbc_rss_fetch.py --days 3 --pretty --output bbc_signals.json
+```
+
 ## Compact Extraction
 
 For each source, extract only:
@@ -81,6 +112,12 @@ For each source, extract only:
 - source URL and retrieval time,
 - fields used in the final decision, including Sporttery poolCode and update time,
 - player names and statuses relevant to the markets,
+- FIFA ranking position, points, and confederation,
+- EA FC overall/attack/midfield/defence ratings,
+- H2H total matches, win rates, goal averages, and trend,
+- Odds movement direction and severity for each key market,
+- Core player star factors (elite players found for each team via `references/core-players.json`),
+- External news signal categories and severity (from BBC RSS or similar feeds),
 - one-line note for data gaps or conflicts.
 
 Avoid full HTML, full rosters, and broad historical tables. They make recovery harder and can cause stale evidence to look current.

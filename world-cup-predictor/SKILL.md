@@ -15,6 +15,7 @@ When current data supports it, return the full US-date slate first, then referen
 - one stable low-multiplier reference per match,
 - two higher-multiplier but evidence-supported references per match,
 - a score-based upset radar for each match, including whether a major upset is plausible,
+- a team strength profile card for matches involving data-sparse teams (FIFA rank 80+ or EA FC OVR < 68),
 - a compact conclusion that combines the references with historical/context data,
 - source timestamps and source roles collected in one bottom `数据来源` section.
 
@@ -90,10 +91,14 @@ The bundled scripts in `scripts/` are helper tools, not required context. Use th
 2. Fetch the full current fixture slate for that US date. Do not silently narrow to one match unless the user supplied a team, match number, or 单场 scope.
 3. Fetch latest Sporttery multipliers for all matches on that US `businessDate` and requested pools. Current Sporttery data is required for final odds-based references in 竞彩 output.
 4. Fetch compact team/player evidence and historical context relevant to each match and market; if time is limited, prioritize matches with complete Sporttery pools but still list all fixtures and missing data.
+4a. Fetch team strength profiles for all matches using `scripts/fifa_rating_fetch.py --mode profile --matchup`. Record FIFA ranking and EA FC ratings in `facts.json.team_profiles`. For data-sparse teams, EA FC OVR differential becomes a primary strength signal. See `references/runbook.md` § Weak-Team Data Enhancement Strategy.
+4b. Fetch H2H records using `scripts/h2h_fetch.py` and snapshot Sporttery odds using `scripts/odds_tracker.py --action snapshot`. Before finalizing, run `--action movement` to detect significant drift. Record in `facts.json.h2h_data` and `facts.json.odds_movement`.
+4c. Look up core player star factors by checking `references/core-players.json` for any elite (OVR >= 85) or star (OVR >= 83) players on either team. Record matched players in `facts.json.core_players`. A data-sparse team with an elite star can create an upset vector that pure team OVR misses.
+4d. Fetch external news signals using `scripts/bbc_rss_fetch.py --days 3 --pretty`. Record signals matching either team in `facts.json.news_signals`. Label these as P5 auxiliary sentiment; they can downgrade confidence (injury to key player) or upgrade it (key rival star absent).
 5. Apply evidence priority after mandatory fixture/odds gates: first use current-year World Cup data from the current tournament, then current lineup/availability, then recent national-team form, then club/player context, then older head-to-head or historical records. Do not let older history override current-year World Cup evidence.
 6. Record source evidence and data gaps in the run files, then compress the final reasoning input into `facts.json` and `analysis-brief.md` when the run has multiple matches or many sources.
 7. Build candidates and select one stable reference plus two higher-multiplier references for each match only if the data supports them.
-8. Build a score-based `爆冷雷达`: compare exact-score candidates, handicap direction, favorite/underdog shape, and team evidence. Output `低/中/高/数据不足`; include one or two cold-score references only when `crs` data exists.
+8. Build a score-based `爆冷雷达`: compare exact-score candidates, handicap direction, favorite/underdog shape, and team evidence. Also incorporate EA FC rating differentials, odds movement signals, and H2H trends from steps 4a/4b. Output `低/中/高/数据不足`; include one or two cold-score references only when `crs` data exists. See `references/output-contract.md` § Enhanced Upset Signals for the full signal table.
 9. Write a short "过往数据结论" section that explains how historical form/results/stats influence the selected references, while labeling the historical data as context in the bottom source section.
 10. Run the pre-final hook when run files exist:
 
@@ -152,6 +157,10 @@ Use Chinese by default. The final answer should be concise, beginner-friendly, s
 - 总进球参考：
 - 爆冷雷达：
 - 信心指数：
+
+**球队实力画像** (data-sparse matches only)
+| 指标 | 主队 | 客队 |
+|---|---|---|
 
 **综合推荐**
 - 稳胆：

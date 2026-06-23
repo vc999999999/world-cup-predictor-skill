@@ -16,6 +16,7 @@ FINAL_DISCLAIMER = "# 仅供娱乐参考"
 SELECTED_STATUSES = ("stable selected", "high selected")
 SOURCE_HEADING = "数据来源"
 REQUIRED_FINAL_SECTIONS = ("今日小白速览", "单场卡片", "综合推荐", "爆冷雷达")
+OPTIONAL_FINAL_SECTIONS = ("球队实力画像",)
 SOURCE_NAME_TOKENS = (
     "Sporttery",
     "Polymarket",
@@ -26,6 +27,9 @@ SOURCE_NAME_TOKENS = (
     "Covers",
     "Kalshi",
     "Bet365",
+    "SoFIFA",
+    "EAFC",
+    "11v11",
     "中国体彩网",
 )
 
@@ -100,6 +104,32 @@ def validate_facts(facts: dict[str, Any], result: ValidationResult) -> None:
         result.warnings.append("facts.json has no upset_radar; final answer must still include 爆冷雷达")
     if "data_gaps" not in facts:
         result.errors.append("facts.json must include data_gaps, even when empty")
+    # New enhancement fields — warn if missing, don't block
+    if "team_profiles" not in facts:
+        result.warnings.append(
+            "facts.json has no team_profiles; weak-team predictions may lack "
+            "FIFA ranking / EA FC rating baselines"
+        )
+    if "odds_movement" not in facts:
+        result.warnings.append(
+            "facts.json has no odds_movement; odds drift signals will not be "
+            "available for upset radar or confidence adjustment"
+        )
+    if "h2h_data" not in facts:
+        result.warnings.append(
+            "facts.json has no h2h_data; head-to-head trends will not "
+            "support historical context"
+        )
+    if "core_players" not in facts:
+        result.warnings.append(
+            "facts.json has no core_players; elite/star player signals "
+            "will not be available for upset radar or weak-team analysis"
+        )
+    if "news_signals" not in facts:
+        result.warnings.append(
+            "facts.json has no news_signals; external injury/squad/tactical "
+            "signals will not be available for confidence adjustment"
+        )
 
 
 def selected_lines(matrix: str) -> list[str]:
@@ -131,6 +161,30 @@ def validate_handoff(run_dir: Path, result: ValidationResult) -> None:
     for heading in ["## Verified", "## Missing Or Conflicting", "## Decisions"]:
         if heading not in handoff:
             result.errors.append(f"handoff.md missing heading: {heading}")
+
+
+def validate_team_profiles(facts: dict[str, Any], result: ValidationResult) -> None:
+    """Check team_profiles quality, especially for data-sparse weak teams."""
+    profiles = facts.get("team_profiles")
+    if not profiles or not isinstance(profiles, list):
+        return
+    for profile in profiles:
+        if not isinstance(profile, dict):
+            continue
+        team = profile.get("team", "unknown")
+        tier = profile.get("strength_tier", "")
+        quality = profile.get("data_quality", "")
+        is_sparse = profile.get("is_data_sparse", False)
+        if is_sparse and quality == "insufficient":
+            result.warnings.append(
+                f"team_profiles: {team} is marked data-sparse but has "
+                f"insufficient profile data; weak-team prediction will be limited"
+            )
+        if tier in ("weak", "mid-low") and not profile.get("eafc_rating"):
+            result.warnings.append(
+                f"team_profiles: {team} is tier={tier} but missing EA FC rating; "
+                f"consider running fifa_rating_fetch.py --mode eafc"
+            )
 
 
 def validate_final_answer(path: Path, result: ValidationResult) -> None:
@@ -181,6 +235,7 @@ def validate(run_dir: Path | str, final_answer: Path | str | None = None) -> Val
     facts = load_facts(root / "facts.json", result)
     validate_source_ledger(root, result)
     validate_facts(facts, result)
+    validate_team_profiles(facts, result)
     validate_decision_matrix(root, result)
     validate_handoff(root, result)
     if final_answer:

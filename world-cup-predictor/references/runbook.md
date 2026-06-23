@@ -99,7 +99,79 @@ Keep compact structured evidence:
     }
   ],
   "team_notes": [],
-  "data_gaps": []
+  "data_gaps": [],
+  "team_profiles": [
+    {
+      "team": "",
+      "fifa_ranking": {
+        "rank": null,
+        "points": null,
+        "confederation": "",
+        "rank_change": null
+      },
+      "eafc_rating": {
+        "overall": null,
+        "attack": null,
+        "midfield": null,
+        "defence": null
+      },
+      "strength_tier": "elite|strong|mid|mid-low|weak",
+      "is_data_sparse": false,
+      "data_quality": "good|partial|insufficient"
+    }
+  ],
+  "odds_movement": [
+    {
+      "match": "",
+      "pool": "",
+      "selection": "",
+      "opening_odds": null,
+      "current_odds": null,
+      "movement": null,
+      "movement_pct": null,
+      "direction": "",
+      "severity": "",
+      "signal": ""
+    }
+  ],
+  "h2h_data": [
+    {
+      "match": "",
+      "home": "",
+      "away": "",
+      "total_matches": null,
+      "home_wins": null,
+      "draws": null,
+      "away_wins": null,
+      "home_goals_avg": null,
+      "away_goals_avg": null,
+      "goal_total_avg": null,
+      "recent_5": [],
+      "trend": ""
+    }
+  ],
+  "core_players": {
+    "home": [
+      {
+        "name": "",
+        "club": "",
+        "position": "",
+        "ovr": null,
+        "tier": "elite|star|notable"
+      }
+    ],
+    "away": []
+  },
+  "news_signals": [
+    {
+      "title": "",
+      "category": "injury|suspension|squad|tactics|illness|general",
+      "severity": "high|medium|low",
+      "teams_mentioned": [],
+      "pubDate": "",
+      "link": ""
+    }
+  ]
 }
 ```
 
@@ -199,6 +271,18 @@ After mandatory current fixture and current multiplier checks pass, rank footbal
 6. `P5 auxiliary sentiment`: exchange or overseas market sentiment, social/news context, and other non-Sporttery signals.
 
 When these conflict, prefer the lower-numbered priority unless there is a named data-quality reason not to. Record the conflict in `facts.json.data_gaps` or `decision-matrix.md` rather than smoothing it away.
+
+## Weak-Team Data Enhancement Strategy
+
+When one or both teams in a match are data-sparse (FIFA rank 80+, EA FC OVR < 68, or limited recent match records), apply this enhanced workflow:
+
+1. **Always fetch team profiles**: run `fifa_rating_fetch.py --mode profile --matchup "Team A vs Team B"` for every match. EA FC game ratings provide a structured strength baseline even for teams with no FBref/Understat coverage.
+2. **Weight EA FC ratings higher for weak teams**: when real match data (P0-P2) is sparse, the EA FC overall rating differential becomes a primary strength signal. A 10+ OVR gap strongly suggests a quality difference.
+3. **Fetch H2H for every match**: run `h2h_fetch.py --home "Team A" --away "Team B"` to check for historical patterns. Some weak teams have psychological edges over stronger opponents.
+4. **Snapshot odds early**: run `odds_tracker.py --action snapshot` after the first Sporttery fetch, then compare with `--action movement` before finalizing. Large odds movements often reflect non-public information that is especially valuable for data-sparse matches.
+5. **Flag contradictions**: if EA FC ratings suggest one team is much stronger but odds have drifted toward the weaker team, flag this as a potential upset signal in the 爆冷雷达.
+6. **Look up core player star factors**: check `references/core-players.json` for any elite (OVR >= 85) or star (OVR >= 83) players on either team. A data-sparse team with an elite star (e.g., Son Heung-min on South Korea, Szoboszlai on Hungary) can create an upset vector that pure team OVR misses. Record matched players in `facts.json.core_players`. See `references/output-contract.md` § Core Player Upset Signals.
+7. **Fetch external news signals**: run `scripts/bbc_rss_fetch.py --days 3 --pretty` to get recent injury, suspension, squad, and tactical news. Record signals matching either team in `facts.json.news_signals`. Label these as P5 auxiliary sentiment; they can downgrade confidence (injury to key player) or upgrade it (key rival star absent). See `references/source-helpers.md` § External news/qualitative signal.
 
 ## Pre-Final Validation Hook
 
