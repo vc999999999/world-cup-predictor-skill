@@ -24,7 +24,7 @@ Append one row per source:
 | fixture | FIFA | ... | 2026-06-19 22:20 Asia/Shanghai | yes | official match page |
 ```
 
-Use `Current? = no` for historical context, cached data, old FBref/Understat tables, or anything without live Sporttery multipliers.
+Use `Current? = no` for historical context, cached data, or anything without live Sporttery multipliers.
 
 ### `facts.json`
 
@@ -70,6 +70,16 @@ Keep compact structured evidence:
       "facts_used": []
     }
   ],
+  "independent_judgment": [
+    {
+      "match": "",
+      "expected_direction": "",
+      "goal_expectation": "",
+      "upset_potential": "low|medium|high",
+      "confidence": "",
+      "reasoning": ""
+    }
+  ],
   "historical_context": [
     {
       "match": "",
@@ -109,12 +119,6 @@ Keep compact structured evidence:
         "confederation": "",
         "rank_change": null
       },
-      "eafc_rating": {
-        "overall": null,
-        "attack": null,
-        "midfield": null,
-        "defence": null
-      },
       "strength_tier": "elite|strong|mid|mid-low|weak",
       "is_data_sparse": false,
       "data_quality": "good|partial|insufficient"
@@ -150,18 +154,6 @@ Keep compact structured evidence:
       "trend": ""
     }
   ],
-  "core_players": {
-    "home": [
-      {
-        "name": "",
-        "club": "",
-        "position": "",
-        "ovr": null,
-        "tier": "elite|star|notable"
-      }
-    ],
-    "away": []
-  },
   "news_signals": [
     {
       "title": "",
@@ -175,7 +167,7 @@ Keep compact structured evidence:
 }
 ```
 
-Only include player names that support a decision. Do not store full squads unless the user asks. Keep `historical_context` compact: recent form, head-to-head, tournament results, team/player stats, or market-relevant trends only. Label source/timeframe and limits so older data cannot masquerade as current availability or current multipliers. Use `evidence_priority` to record why current-year World Cup data was weighted above older or proxy evidence. Use `upset_radar` to store the compact reasoning behind `爆冷雷达`, especially exact-score (`crs`) cold-score references and missing score data.
+Only include player names that support a decision. Do not store full squads unless the user asks. Keep `historical_context` compact: recent form, head-to-head, tournament results, team/player stats, or market-relevant trends only. Label source/timeframe and limits so older data cannot masquerade as current availability or current multipliers. Use `evidence_priority` to record why current-year World Cup data was weighted above older or proxy evidence. Use `upset_radar` to store the compact reasoning behind `爆冷雷达`, especially exact-score (`crs`) cold-score references and missing score data. Use `independent_judgment` to store the pre-odds assessment formed in step 5 of the workflow.
 
 ### `analysis-brief.md`
 
@@ -196,8 +188,16 @@ Create this compressed model-input file when the request has multiple matches, m
 - P0 current-year World Cup:
 - P1 current availability:
 - P2 recent national-team:
-- P3 club/player context:
-- P4 older history:
+- P3 older history:
+- P4 auxiliary sentiment:
+
+## Independent Judgment
+| Match | Direction | Goal Exp | Upset Potential | Confidence | Key Reasoning |
+|---|---|---|---|---|---|
+
+## Odds Comparison
+| Match | Judgment vs Market | Value Gap | Confirmation |
+|---|---|---|---|
 
 ## Decisions
 | Match | Main Direction | Score Refs | Upset Radar | Selected References | Key Risk |
@@ -266,23 +266,20 @@ After mandatory current fixture and current multiplier checks pass, rank footbal
 1. `P0 current-year World Cup`: current tournament matches, group situation, team stats, scorelines, discipline, travel/rest, and current squad news from this year's World Cup.
 2. `P1 current availability`: confirmed or reputable current lineup, injuries, suspensions, rotation, and player roles for the specific match.
 3. `P2 recent national-team form`: matches after the current squad cycle began, especially competitive fixtures.
-4. `P3 club/player context`: club-season form, xG, minutes, role, and fitness only for players expected to feature.
-5. `P4 older history`: head-to-head, older tournament records, long-run style, or coach history.
-6. `P5 auxiliary sentiment`: exchange or overseas market sentiment, social/news context, and other non-Sporttery signals.
+4. `P3 older history`: head-to-head, older tournament records, long-run style, or coach history.
+5. `P4 auxiliary sentiment`: exchange or overseas market sentiment, social/news context, and other non-Sporttery signals.
 
 When these conflict, prefer the lower-numbered priority unless there is a named data-quality reason not to. Record the conflict in `facts.json.data_gaps` or `decision-matrix.md` rather than smoothing it away.
 
-## Weak-Team Data Enhancement Strategy
+## Data-Sparse Team Enhancement Strategy
 
-When one or both teams in a match are data-sparse (FIFA rank 80+, EA FC OVR < 68, or limited recent match records), apply this enhanced workflow:
+When one or both teams in a match are data-sparse (FIFA rank 80+ or limited recent match records), apply this enhanced workflow:
 
-1. **Always fetch team profiles**: run `fifa_rating_fetch.py --mode profile --matchup "Team A vs Team B"` for every match. EA FC game ratings provide a structured strength baseline even for teams with no FBref/Understat coverage.
-2. **Weight EA FC ratings higher for weak teams**: when real match data (P0-P2) is sparse, the EA FC overall rating differential becomes a primary strength signal. A 10+ OVR gap strongly suggests a quality difference.
-3. **Fetch H2H for every match**: run `h2h_fetch.py --home "Team A" --away "Team B"` to check for historical patterns. Some weak teams have psychological edges over stronger opponents.
-4. **Snapshot odds early**: run `odds_tracker.py --action snapshot` after the first Sporttery fetch, then compare with `--action movement` before finalizing. Large odds movements often reflect non-public information that is especially valuable for data-sparse matches.
-5. **Flag contradictions**: if EA FC ratings suggest one team is much stronger but odds have drifted toward the weaker team, flag this as a potential upset signal in the 爆冷雷达.
-6. **Look up core player star factors**: check `references/core-players.json` for any elite (OVR >= 85) or star (OVR >= 83) players on either team. A data-sparse team with an elite star (e.g., Son Heung-min on South Korea, Szoboszlai on Hungary) can create an upset vector that pure team OVR misses. Record matched players in `facts.json.core_players`. See `references/output-contract.md` § Core Player Upset Signals.
-7. **Fetch external news signals**: run `scripts/bbc_rss_fetch.py --days 3 --pretty` to get recent injury, suspension, squad, and tactical news. Record signals matching either team in `facts.json.news_signals`. Label these as P5 auxiliary sentiment; they can downgrade confidence (injury to key player) or upgrade it (key rival star absent). See `references/source-helpers.md` § External news/qualitative signal.
+1. **Always fetch FIFA rankings**: run `fifa_rating_fetch.py --mode ranking --matchup "Team A vs Team B"` for every match. FIFA ranking is the primary strength baseline.
+2. **Fetch H2H for every match**: run `h2h_fetch.py --home "Team A" --away "Team B"` to check for historical patterns. Some weak teams have psychological edges over stronger opponents.
+3. **Snapshot odds early**: run `odds_tracker.py --action snapshot` after the first Sporttery fetch (on second+ runs), then compare with `--action movement` before finalizing. Large odds movements often reflect non-public information that is especially valuable for data-sparse matches.
+4. **Flag contradictions**: if FIFA ranking suggests one team is much stronger but odds have drifted toward the weaker team, flag this as a potential upset signal in the 爆冷雷达.
+5. **Fetch external news signals**: run `scripts/bbc_rss_fetch.py --days 3 --pretty` to get recent injury, suspension, squad, and tactical news. Record signals matching either team in `facts.json.news_signals`. Label these as P4 auxiliary sentiment; they can downgrade confidence (injury to key player) or upgrade it (key rival star absent). See `references/output-contract.md` § Upset Radar.
 
 ## Pre-Final Validation Hook
 

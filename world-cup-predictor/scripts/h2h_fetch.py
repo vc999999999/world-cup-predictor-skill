@@ -4,7 +4,7 @@
 Provides historical matchup statistics between two national teams:
 total matches, wins/draws/losses, goal averages, recent form, and
 a trend summary.  Particularly valuable for weaker teams where
-club-level data (FBref, Understat) is unavailable.
+club-level data is unavailable.
 """
 
 from __future__ import annotations

@@ -15,7 +15,7 @@ When current data supports it, return the full US-date slate first, then referen
 - one stable low-multiplier reference per match,
 - two higher-multiplier but evidence-supported references per match,
 - a score-based upset radar for each match, including whether a major upset is plausible,
-- a team strength profile card for matches involving data-sparse teams (FIFA rank 80+ or EA FC OVR < 68),
+- a team strength profile card for matches involving data-sparse teams (FIFA rank 80+),
 - a compact conclusion that combines the references with historical/context data,
 - source timestamps and source roles collected in one bottom `数据来源` section.
 
@@ -51,7 +51,7 @@ work/world-cup-predictor/YYYYMMDD-HHMM/
 Create or update these small files during the workflow:
 
 - `source-ledger.md`: URLs, source names, retrieval time, and whether each source is current or historical context.
-- `facts.json`: compact structured facts only: US fixture date, all fixtures, Sporttery multiplier rows, auxiliary market rows, player names/status, team notes, and data gaps.
+- `facts.json`: compact structured facts only: US fixture date, all fixtures, Sporttery multiplier rows, player names/status, team notes, and data gaps.
 - `decision-matrix.md`: candidate markets per match, evidence, risks, implied probabilities, and final selection status.
 - `analysis-brief.md` when the slate has multiple matches or the raw evidence is lengthy: compressed model input for final reasoning, limited to verified facts, selected candidates, risks, upset signals, and unresolved gaps.
 - `handoff.md`: what is verified, what failed, what still needs checking, and final answer readiness.
@@ -85,29 +85,82 @@ Read only the reference file needed for the next decision:
 
 The bundled scripts in `scripts/` are helper tools, not required context. Use them when they reduce scraping/cleaning work, and label cached or historical outputs as context rather than current evidence.
 
+## Data Loading Tiers (P0/P1/P2)
+
+Scripts are organized into priority tiers. Run each tier only when its trigger condition is met, and stop as soon as you have enough evidence for confident references.
+
+### P0 — Always Run (every request)
+
+| Script | Purpose | Trigger |
+|---|---|---|
+| `sporttery_fetch.py` | Fetch fixture slate + all pool multipliers | Always — this is the mandatory data foundation |
+| `fifa_rating_fetch.py` | Fetch FIFA Men's World Ranking for both teams | Always — provides team strength baseline |
+
+P0 data is fetched at the start but Sporttery odds are **not used for analysis** until after independent judgment is formed (see Workflow Gates step 5).
+
+### P1 — Default Run (after P0, for every match)
+
+| Script | Purpose | Trigger |
+|---|---|---|
+| `h2h_fetch.py` | Fetch head-to-head national team records | After P0 identifies the match slate |
+| `bbc_rss_fetch.py` | Fetch recent injury/suspension/squad news signals | After P0 identifies the match slate |
+
+P1 data builds the independent judgment foundation. These run automatically once the fixture slate is known.
+
+### P2 — On-Demand (only when information gaps exist)
+
+| Script | Purpose | Trigger |
+|---|---|---|
+| `fbref_fetch.py` | Fetch detailed historical match results / xG | When P0+P1 evidence is insufficient for a match — e.g., no recent form data, or need specific tournament results |
+| `odds_tracker.py` | Track odds movement across runs | Only on second+ analysis of the same fixture date — first run has no baseline to compare |
+
+P2 scripts are triggered by **identified gaps** during analysis, not by default. The agent decides whether to run them based on whether P0+P1 evidence is sufficient.
+
 ## Workflow Gates
 
-1. Resolve the scope and US fixture date. If the user says "today", state the exact US date/timezone used and the corresponding Asia/Shanghai date.
-2. Fetch the full current fixture slate for that US date. Do not silently narrow to one match unless the user supplied a team, match number, or 单场 scope.
-3. Fetch latest Sporttery multipliers for all matches on that US `businessDate` and requested pools. Current Sporttery data is required for final odds-based references in 竞彩 output.
-4. Fetch compact team/player evidence and historical context relevant to each match and market; if time is limited, prioritize matches with complete Sporttery pools but still list all fixtures and missing data.
-4a. Fetch team strength profiles for all matches using `scripts/fifa_rating_fetch.py --mode profile --matchup`. Record FIFA ranking and EA FC ratings in `facts.json.team_profiles`. For data-sparse teams, EA FC OVR differential becomes a primary strength signal. See `references/runbook.md` § Weak-Team Data Enhancement Strategy.
-4b. Fetch H2H records using `scripts/h2h_fetch.py` and snapshot Sporttery odds using `scripts/odds_tracker.py --action snapshot`. Before finalizing, run `--action movement` to detect significant drift. Record in `facts.json.h2h_data` and `facts.json.odds_movement`.
-4c. Look up core player star factors by checking `references/core-players.json` for any elite (OVR >= 85) or star (OVR >= 83) players on either team. Record matched players in `facts.json.core_players`. A data-sparse team with an elite star can create an upset vector that pure team OVR misses.
-4d. Fetch external news signals using `scripts/bbc_rss_fetch.py --days 3 --pretty`. Record signals matching either team in `facts.json.news_signals`. Label these as P5 auxiliary sentiment; they can downgrade confidence (injury to key player) or upgrade it (key rival star absent).
-5. Apply evidence priority after mandatory fixture/odds gates: first use current-year World Cup data from the current tournament, then current lineup/availability, then recent national-team form, then club/player context, then older head-to-head or historical records. Do not let older history override current-year World Cup evidence.
-6. Record source evidence and data gaps in the run files, then compress the final reasoning input into `facts.json` and `analysis-brief.md` when the run has multiple matches or many sources.
-7. Build candidates and select one stable reference plus two higher-multiplier references for each match only if the data supports them.
-8. Build a score-based `爆冷雷达`: compare exact-score candidates, handicap direction, favorite/underdog shape, and team evidence. Also incorporate EA FC rating differentials, odds movement signals, and H2H trends from steps 4a/4b. Output `低/中/高/数据不足`; include one or two cold-score references only when `crs` data exists. See `references/output-contract.md` § Enhanced Upset Signals for the full signal table.
-9. Write a short "过往数据结论" section that explains how historical form/results/stats influence the selected references, while labeling the historical data as context in the bottom source section.
-10. Run the pre-final hook when run files exist:
+The key principle: **form independent judgment first, then compare with odds to find value**.
+
+1. **Resolve scope and US fixture date.** If the user says "today", state the exact US date/timezone used and the corresponding Asia/Shanghai date.
+
+2. **Fetch fixture slate (P0).** Run `sporttery_fetch.py` to get the full current fixture slate for that US date. Do not silently narrow to one match unless the user supplied a team, match number, or 单场 scope. Store the fixture data but **do not analyze odds yet**.
+
+3. **Fetch team strength profiles (P0).** Run `fifa_rating_fetch.py --mode ranking --matchup "Team A vs Team B"` for each match. Record FIFA ranking in `facts.json.team_profiles`.
+
+4. **Fetch context evidence (P1).** For each match:
+   - 4a. Run `h2h_fetch.py --home "Team A" --away "Team B"` to get head-to-head records. Record in `facts.json.h2h_data`.
+   - 4b. Run `bbc_rss_fetch.py --days 3 --pretty` to get recent news signals. Record signals matching either team in `facts.json.news_signals`. Label as P5 auxiliary sentiment.
+
+5. **Form independent judgment.** Before looking at any odds, analyze the evidence gathered in steps 3-4:
+   - Compare FIFA rankings and recent form
+   - Assess H2H patterns
+   - Factor in injury/suspension news
+   - Apply evidence priority (P0 current tournament > P1 availability > P2 recent form > P3 older history > P4 auxiliary sentiment)
+   - For each match, form a preliminary view: expected direction, goal expectation, upset potential
+   - Record this independent assessment in `facts.json.independent_judgment`
+
+6. **Fetch and compare odds (P0 odds, used now).** Now retrieve the Sporttery multipliers from the P0 fetch in step 2:
+   - Compare your independent judgment with the market odds
+   - Identify **value gaps**: where your assessment differs significantly from what odds imply
+   - Identify **confirmations**: where odds and independent judgment align
+   - Record the comparison in `decision-matrix.md`
+
+7. **Fetch P2 data on demand.** If step 5-6 reveal information gaps (e.g., a match has very limited recent form data, or odds show unusual patterns that need explanation):
+   - Run `fbref_fetch.py` for specific tournament/historical results
+   - Run `odds_tracker.py --action snapshot` if this is a second+ analysis of the same date, then `--action movement` to detect drift
+
+8. **Build candidates and select references.** For each match, select one stable reference plus two higher-multiplier references only if the data supports them. Each reference must have evidence from the independent judgment step confirmed or adjusted by odds comparison.
+
+9. **Build upset radar.** For each match, output `低/中/高/数据不足` based on: FIFA ranking gap vs odds tightness, H2H trends, odds movement signals (if available), news signal severity, and independent judgment confidence. Include one or two cold-score references only when `crs` data exists. See `references/output-contract.md` § Upset Radar.
+
+10. **Write historical conclusion.** Write a short "过往数据结论" section that explains how historical form/results/stats influence the selected references, while labeling the historical data as context in the bottom source section.
+
+11. **Validate and finalize.** Run the pre-final hook:
 
 ```bash
 python3 scripts/validate_run.py work/world-cup-predictor/YYYYMMDD-HHMM/ --final-answer work/world-cup-predictor/YYYYMMDD-HHMM/final.md
 ```
 
-If no `final.md` draft exists, run the hook without `--final-answer` and manually verify the final line. Fix any hook errors before finalizing.
-11. Run the final quality gate in `references/output-contract.md`, including the required final line `# 仅供娱乐参考`.
+If no `final.md` draft exists, run the hook without `--final-answer` and manually verify the final line. Fix any hook errors before finalizing. Then run the final quality gate in `references/output-contract.md`, including the required final line `# 仅供娱乐参考`.
 
 ## Hard Stops
 
@@ -128,10 +181,10 @@ In these cases, report the data gap and avoid unsupported recommendations.
 
 - Prefer official competition/federation sources for fixtures, Sporttery for 竞彩 multipliers, and official or reputable lineup/injury sources for availability.
 - For World Cup requests in the United States, use US/Eastern date as the canonical "today" unless the user specifies another US timezone; keep Sporttery `businessDate` aligned to that US fixture date.
-- For performance/context analysis, prioritize current-year World Cup data from the current tournament over older national-team history, club-level proxies, or generic reputation.
+- For performance/context analysis, prioritize current-year World Cup data from the current tournament over older national-team history or generic reputation.
 - Treat Polymarket, exchange prices, and overseas sportsbooks as auxiliary context only unless the user explicitly asks for those markets instead of 竞彩.
 - Keep player evidence to names, status, role, and only the few metrics needed for the market.
-- Treat FBref, Transfermarkt, Understat, official historical results, and prior tournament/team-form data as historical context sources; for national teams, verify that club/team data maps to the actual squad.
+- Treat FBref and official historical results as historical context sources; for national teams, verify that data maps to the actual squad.
 - Historical context should influence confidence and reasoning, but it must not replace current Sporttery multipliers, current fixtures, or current availability.
 - Use "参考" language. Avoid guaranteed-result wording and staking advice.
 - End every final answer with the exact Markdown line `# 仅供娱乐参考`.

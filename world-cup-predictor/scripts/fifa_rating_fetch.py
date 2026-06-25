@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
-"""Fetch FIFA Men's World Ranking and EA FC national team ratings.
+"""Fetch FIFA Men's World Ranking for team strength profiles.
 
-Dual-mode fetcher:
-- ``ranking`` mode: scrapes the official FIFA Men's World Ranking page for
-  rank, team name, confederation, ranking points, and rank change.
-- ``eafc`` mode: scrapes sofifa.com for EA FC (formerly FIFA game) national
-  team ratings — overall, attack, midfield, defence — which serve as a
-  structured strength proxy for teams with sparse real-match data.
-
-Both modes output compact JSON.  The ``--matchup`` flag accepts a
-``"Team A vs Team B"`` string and fetches profiles for both teams.
+Fetches the official FIFA Men's World Ranking for rank, team name,
+confederation, ranking points, and rank change. Outputs compact JSON.
+The ``--matchup`` flag accepts a ``"Team A vs Team B"`` string and
+filters the ranking to those teams.
 """
 
 from __future__ import annotations
@@ -31,7 +26,6 @@ from bs4 import BeautifulSoup
 # ---------------------------------------------------------------------------
 
 FIFA_RANKING_URL = "https://www.fifa.com/fifa-world-ranking/men"
-SOFAIFA_TEAMS_URL = "https://sofifa.com/teams?type=national"
 
 HEADERS = {
     "User-Agent": (
@@ -101,7 +95,7 @@ def parse_matchup(matchup: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# FIFA Ranking mode
+# FIFA Ranking
 # ---------------------------------------------------------------------------
 
 def _try_fifa_api(timeout: float) -> list[dict[str, Any]] | None:
@@ -123,7 +117,6 @@ def _try_fifa_api(timeout: float) -> list[dict[str, Any]] | None:
 def _parse_fifa_api_response(data: Any) -> list[dict[str, Any]] | None:
     """Parse FIFA API ranking response. Structure varies; adapt as needed."""
     results = []
-    # Try common response shapes
     entries = []
     if isinstance(data, dict):
         for key in ("rankings", "data", "result", "entries"):
@@ -167,7 +160,6 @@ def _parse_fifa_html(html: str) -> list[dict[str, Any]]:
             if len(cells) < 3:
                 continue
             texts = [cell.get_text(strip=True) for cell in cells]
-            # Try to identify rank (number), team name, points (number)
             rank = None
             team = None
             points = None
@@ -218,12 +210,10 @@ def _parse_fifa_html(html: str) -> list[dict[str, Any]]:
 
 def fetch_fifa_ranking(timeout: float = 30.0) -> list[dict[str, Any]]:
     """Fetch FIFA Men's World Ranking. Tries API first, then HTML."""
-    # Try API
     api_result = _try_fifa_api(timeout)
     if api_result:
         return api_result
 
-    # Fallback to HTML
     try:
         html = fetch_text(FIFA_RANKING_URL, timeout=timeout)
         results = _parse_fifa_html(html)
@@ -234,230 +224,46 @@ def fetch_fifa_ranking(timeout: float = 30.0) -> list[dict[str, Any]]:
 
     raise FetchError(
         "Could not fetch FIFA ranking from API or HTML. "
-        "The page structure may have changed. Try using --team to search SoFIFA instead."
+        "The page structure may have changed."
     )
 
 
 def find_team_in_ranking(rankings: list[dict[str, Any]], team_name: str) -> dict[str, Any] | None:
     """Fuzzy-match a team name in the ranking list."""
     team_lower = team_name.lower().strip()
-    # Exact match
     for entry in rankings:
         if entry["team"].lower().strip() == team_lower:
             return entry
-    # Substring match
     for entry in rankings:
         if team_lower in entry["team"].lower() or entry["team"].lower() in team_lower:
             return entry
     return None
 
 
-# ---------------------------------------------------------------------------
-# EA FC / SoFIFA mode
-# ---------------------------------------------------------------------------
-
-def _parse_sofifa_teams_page(html: str) -> list[dict[str, Any]]:
-    """Parse SoFIFA national teams listing page."""
-    soup = BeautifulSoup(html, "lxml")
-    results = []
-
-    table = soup.select_one("table.table-responsive, table")
-    if not table:
-        return results
-
-    rows = table.select("tbody tr")
-    for row in rows:
-        cells = row.select("td")
-        if len(cells) < 4:
-            continue
-
-        # Extract team name and link
-        team_link = row.select_one("a[href*='/team/']")
-        team_name = team_link.get_text(strip=True) if team_link else ""
-        team_url = team_link.get("href", "") if team_link else ""
-        if team_url and not team_url.startswith("http"):
-            team_url = f"https://sofifa.com{team_url}"
-
-        # Extract ratings from cells
-        ratings = []
-        for cell in cells:
-            text = cell.get_text(strip=True)
-            num = to_number(text)
-            if num is not None and 30 <= num <= 99:
-                ratings.append(num)
-
-        if team_name and ratings:
-            results.append({
-                "team": team_name,
-                "team_url": team_url,
-                "overall": ratings[0] if len(ratings) > 0 else None,
-                "attack": ratings[1] if len(ratings) > 1 else None,
-                "midfield": ratings[2] if len(ratings) > 2 else None,
-                "defence": ratings[3] if len(ratings) > 3 else None,
-                "source": "SoFIFA/EAFC",
-            })
-
-    return results
-
-
-def _parse_sofifa_team_detail(html: str, team_name: str) -> dict[str, Any]:
-    """Parse detailed ratings from a SoFIFA team page."""
-    soup = BeautifulSoup(html, "lxml")
-    result: dict[str, Any] = {
-        "team": team_name,
-        "source": "SoFIFA/EAFC",
-    }
-
-    # Look for overall rating
-    ovr_el = soup.select_one('[class*="overall"], [class*="ovr"], [data-property="overall"]')
-    if ovr_el:
-        result["overall"] = to_number(ovr_el.get_text(strip=True))
-
-    # Look for sub-ratings in various structures
-    rating_labels = {
-        "attack": ["attack", "att", "atk", "ATT"],
-        "midfield": ["midfield", "mid", "MID"],
-        "defence": ["defence", "defense", "def", "DEF"],
-        "pace": ["pace", "PAC"],
-        "shooting": ["shooting", "sho", "SHO"],
-        "passing": ["passing", "pas", "PAS"],
-        "dribbling": ["dribbling", "dri", "DRI"],
-        "physical": ["physical", "phy", "PHY"],
-    }
-
-    for key, labels in rating_labels.items():
-        for label in labels:
-            el = soup.find(string=re.compile(rf"\b{re.escape(label)}\b", re.IGNORECASE))
-            if el:
-                parent = el.find_parent(["td", "div", "span", "li"])
-                if parent:
-                    # Look for a number near the label
-                    sibling_nums = parent.select('[class*="rating"], [class*="value"]')
-                    for sib in sibling_nums:
-                        num = to_number(sib.get_text(strip=True))
-                        if num is not None and 30 <= num <= 99:
-                            result[key] = num
-                            break
-                if key in result:
-                    break
-
-    # Also try the card-style layout
-    card = soup.select_one('[class*="card"], [class*="team"]')
-    if card and "overall" not in result:
-        big_nums = card.select('[class*="big"], [class*="main"], h1, h2')
-        for el in big_nums:
-            num = to_number(el.get_text(strip=True))
-            if num is not None and 30 <= num <= 99:
-                result["overall"] = num
-                break
-
-    return result
-
-
-def fetch_eafc_ratings(team_names: list[str], timeout: float = 30.0) -> list[dict[str, Any]]:
-    """Fetch EA FC ratings for given national teams from SoFIFA."""
-    # First fetch the teams listing page
-    try:
-        html = fetch_text(SOFAIFA_TEAMS_URL, timeout=timeout)
-        all_teams = _parse_sofifa_teams_page(html)
-    except FetchError:
-        all_teams = []
-
-    results = []
-    for team_name in team_names:
-        team_lower = team_name.lower().strip()
-        matched = None
-
-        # Try exact match first
-        for entry in all_teams:
-            if entry["team"].lower().strip() == team_lower:
-                matched = entry
-                break
-
-        # Fuzzy match
-        if not matched:
-            for entry in all_teams:
-                if team_lower in entry["team"].lower() or entry["team"].lower() in team_lower:
-                    matched = entry
-                    break
-
-        if matched:
-            # If we have a team detail URL, try to get more detailed ratings
-            if matched.get("team_url"):
-                try:
-                    detail_html = fetch_text(matched["team_url"], timeout=timeout)
-                    detail = _parse_sofifa_team_detail(detail_html, matched["team"])
-                    # Merge: detail page fills in gaps
-                    merged = {**matched}
-                    for key, value in detail.items():
-                        if value is not None:
-                            merged[key] = value
-                    results.append(merged)
-                except FetchError:
-                    results.append(matched)
-            else:
-                results.append(matched)
-        else:
-            results.append({
-                "team": team_name,
-                "overall": None,
-                "attack": None,
-                "midfield": None,
-                "defence": None,
-                "source": "SoFIFA/EAFC",
-                "note": "team not found on SoFIFA",
-            })
-
-    return results
-
-
-def classify_strength_tier(fifa_rank: float | None, eafc_ovr: float | None) -> str:
-    """Classify a team into a strength tier based on FIFA rank and EA FC OVR."""
-    if fifa_rank is not None:
-        if fifa_rank <= 10:
-            return "elite"
-        if fifa_rank <= 30:
-            return "strong"
-        if fifa_rank <= 60:
-            return "mid"
-        if fifa_rank <= 100:
-            return "mid-low"
-        return "weak"
-    if eafc_ovr is not None:
-        if eafc_ovr >= 82:
-            return "elite"
-        if eafc_ovr >= 76:
-            return "strong"
-        if eafc_ovr >= 70:
-            return "mid"
-        if eafc_ovr >= 65:
-            return "mid-low"
-        return "weak"
-    return "unknown"
+def classify_strength_tier(fifa_rank: float | None) -> str:
+    """Classify a team into a strength tier based on FIFA rank."""
+    if fifa_rank is None:
+        return "unknown"
+    if fifa_rank <= 10:
+        return "elite"
+    if fifa_rank <= 30:
+        return "strong"
+    if fifa_rank <= 60:
+        return "mid"
+    if fifa_rank <= 100:
+        return "mid-low"
+    return "weak"
 
 
 def build_team_profile(
     team_name: str,
     ranking: list[dict[str, Any]],
-    eafc: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Merge FIFA ranking and EA FC rating into a unified team profile."""
+    """Build a team profile from FIFA ranking data."""
     fifa = find_team_in_ranking(ranking, team_name)
-    eafc_entry = None
-    for entry in eafc:
-        if entry["team"].lower().strip() == team_name.lower().strip():
-            eafc_entry = entry
-            break
-    if not eafc_entry:
-        for entry in eafc:
-            if team_name.lower() in entry["team"].lower() or entry["team"].lower() in team_name.lower():
-                eafc_entry = entry
-                break
-
     fifa_rank = fifa.get("rank") if fifa else None
     fifa_points = fifa.get("points") if fifa else None
-    eafc_ovr = eafc_entry.get("overall") if eafc_entry else None
-    tier = classify_strength_tier(fifa_rank, eafc_ovr)
+    tier = classify_strength_tier(fifa_rank)
 
     return {
         "team": team_name,
@@ -467,15 +273,9 @@ def build_team_profile(
             "confederation": fifa.get("confederation", "") if fifa else "",
             "rank_change": fifa.get("rank_change") if fifa else None,
         } if fifa else None,
-        "eafc_rating": {
-            "overall": eafc_entry.get("overall") if eafc_entry else None,
-            "attack": eafc_entry.get("attack") if eafc_entry else None,
-            "midfield": eafc_entry.get("midfield") if eafc_entry else None,
-            "defence": eafc_entry.get("defence") if eafc_entry else None,
-        } if eafc_entry else None,
         "strength_tier": tier,
         "is_data_sparse": tier in ("mid-low", "weak", "unknown"),
-        "data_quality": "good" if (fifa and eafc_entry) else ("partial" if (fifa or eafc_entry) else "insufficient"),
+        "data_quality": "good" if fifa else "insufficient",
     }
 
 
@@ -485,23 +285,19 @@ def build_team_profile(
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fetch FIFA Men's World Ranking and EA FC national team ratings."
+        description="Fetch FIFA Men's World Ranking for team strength profiles."
     )
     parser.add_argument(
         "--mode",
-        choices=["ranking", "eafc", "profile"],
-        default="profile",
-        help=(
-            "ranking: FIFA official ranking only. "
-            "eafc: EA FC game ratings only. "
-            "profile: merge both into unified team profiles (default)."
-        ),
+        choices=["ranking"],
+        default="ranking",
+        help="ranking: FIFA official ranking (default and only mode).",
     )
     parser.add_argument(
         "--team",
         action="append",
         default=[],
-        help="Team name to look up (repeatable). Required for eafc/profile modes.",
+        help="Team name to look up (repeatable).",
     )
     parser.add_argument(
         "--matchup",
@@ -523,65 +319,38 @@ def main(argv: list[str]) -> int:
     team_names = list(dict.fromkeys(team_names))  # deduplicate preserving order
 
     try:
-        if args.mode == "ranking":
-            rankings = fetch_fifa_ranking(timeout=args.timeout)
-            if team_names:
-                filtered = [r for r in rankings if any(
-                    t.lower() in r["team"].lower() or r["team"].lower() in t.lower()
-                    for t in team_names
-                )]
-                rankings = filtered if filtered else rankings
+        rankings = fetch_fifa_ranking(timeout=args.timeout)
+
+        if team_names:
+            filtered = [r for r in rankings if any(
+                t.lower() in r["team"].lower() or r["team"].lower() in t.lower()
+                for t in team_names
+            )]
+
+            profiles = []
+            for team_name in team_names:
+                profile = build_team_profile(team_name, rankings)
+                profiles.append(profile)
+
+            output = {
+                "source": "FIFA",
+                "sourceUrl": FIFA_RANKING_URL,
+                "retrievedAt": retrieved_at,
+                "mode": "ranking",
+                "profiles": profiles,
+            }
+        else:
+            # No specific teams: return full ranking
+            profiles = []
+            for entry in rankings[:50]:
+                profiles.append(build_team_profile(entry["team"], rankings))
+
             output = {
                 "source": "FIFA",
                 "sourceUrl": FIFA_RANKING_URL,
                 "retrievedAt": retrieved_at,
                 "mode": "ranking",
                 "rankings": rankings,
-            }
-
-        elif args.mode == "eafc":
-            if not team_names:
-                print("[fifa_rating] --team or --matchup required for eafc mode", file=sys.stderr)
-                return 1
-            ratings = fetch_eafc_ratings(team_names, timeout=args.timeout)
-            output = {
-                "source": "SoFIFA/EAFC",
-                "sourceUrl": SOFAIFA_TEAMS_URL,
-                "retrievedAt": retrieved_at,
-                "mode": "eafc",
-                "ratings": ratings,
-            }
-
-        else:  # profile
-            # Fetch ranking for all teams
-            try:
-                rankings = fetch_fifa_ranking(timeout=args.timeout)
-            except FetchError as exc:
-                print(f"[fifa_rating] FIFA ranking fetch failed, continuing without: {exc}", file=sys.stderr)
-                rankings = []
-
-            # Fetch EA FC for specified teams
-            eafc_ratings = []
-            if team_names:
-                try:
-                    eafc_ratings = fetch_eafc_ratings(team_names, timeout=args.timeout)
-                except FetchError as exc:
-                    print(f"[fifa_rating] EA FC ratings fetch failed: {exc}", file=sys.stderr)
-
-            profiles = []
-            for team_name in team_names:
-                profile = build_team_profile(team_name, rankings, eafc_ratings)
-                profiles.append(profile)
-
-            # If no teams specified, return full ranking with empty EA FC
-            if not team_names:
-                for entry in rankings[:50]:
-                    profiles.append(build_team_profile(entry["team"], rankings, []))
-
-            output = {
-                "source": "FIFA + SoFIFA/EAFC",
-                "retrievedAt": retrieved_at,
-                "mode": "profile",
                 "profiles": profiles,
             }
 

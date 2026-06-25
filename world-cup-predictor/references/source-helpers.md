@@ -12,13 +12,11 @@ Use sources by evidence role, not by habit:
 | 竞彩 multipliers | Sporttery webapi | primary source for final 倍率 when the user asks for 竞彩/Sporttery/poolCode |
 | Auxiliary market sentiment | Polymarket, exchange prices, overseas books, odds aggregators | context only; do not use as final 竞彩倍率 |
 | Lineups/availability | official match center, team channel, reliable live-score lineup page | required for player-specific markets |
-| Team/player context | FBref, Transfermarkt, Understat, official stats | context only, not a substitute for current Sporttery multipliers |
-| Historical conclusion context | official historical results, FBref, worldfootballR-derived data, FIFA match reports, recent form pages | use only for 过往数据结论; label source/timeframe |
-| Team strength baseline | FIFA Men's World Ranking, EA FC (SoFIFA) national team ratings | primary strength proxy for data-sparse teams; FIFA ranking for official context, EA FC OVR/ATT/MID/DEF for granular profile |
-| Core player star factor | `references/core-players.json` (curated EA FC elite players by national team) | qualitative signal for data-sparse teams; a single elite player (OVR >= 85) on a weak team can create an upset vector that team OVR alone misses |
+| Team strength baseline | FIFA Men's World Ranking | primary strength proxy for all teams; official and universally available |
 | Head-to-head context | 11v11.com national team H2H records | historical matchup patterns; useful for psychological edges and style matchups |
+| Historical conclusion context | official historical results, FBref, worldfootballR-derived data, FIFA match reports, recent form pages | use only for 过往数据结论; label source/timeframe |
 | Odds movement signal | Sporttery odds snapshots (odds_tracker.py) | cross-run odds drift detection; reflects non-public info especially for weak-team matches |
-| External news/qualitative signal | BBC Sport RSS (scripts/bbc_rss_fetch.py), other reputable news feeds | injuries, suspensions, squad rotation, tactical changes; labeled as P5 auxiliary sentiment only |
+| External news/qualitative signal | BBC Sport RSS (scripts/bbc_rss_fetch.py), other reputable news feeds | injuries, suspensions, squad rotation, tactical changes; labeled as P4 auxiliary sentiment only |
 
 ## Evidence Priority
 
@@ -29,9 +27,8 @@ Do not treat all football facts equally. Current fixture identity and current Sp
 | `P0` | Current-year World Cup data from the current tournament | Highest-weight football context: current tournament results, scorelines, group/table pressure, team stats, discipline, rest/travel, and squad news |
 | `P1` | Current match availability | Confirmed or reputable lineup, injuries, suspensions, rotation risk, and player roles for this match |
 | `P2` | Recent national-team form after the current squad cycle began | Use when current-year World Cup sample is thin; prefer competitive matches |
-| `P3` | Club/player context | Use only for players expected to feature; helpful for role, minutes, xG, fitness, and form |
-| `P4` | Older history and head-to-head | Context only; never outweigh current tournament evidence |
-| `P5` | Auxiliary market or media sentiment | Risk/context only; never replace Sporttery multipliers or current football evidence |
+| `P3` | Older history and head-to-head | Context only; never outweigh current tournament evidence |
+| `P4` | Auxiliary market or media sentiment | Risk/context only; never replace Sporttery multipliers or current football evidence |
 
 When priorities conflict, name the conflict and prefer the lower-numbered priority unless the source is stale, ambiguous, or lower quality. Store the decision in `facts.json.evidence_priority` and the unresolved issue in `data_gaps`.
 
@@ -66,12 +63,22 @@ Pool mapping:
 
 ## Bundled Scripts
 
-The scripts are helpers for structured data extraction:
+The scripts are helpers for structured data extraction, organized by data loading tier:
+
+### P0 — Always Run
 
 - `scripts/sporttery_fetch.py`: Sporttery football multiplier extraction for `had`, `hhad`, `crs`, `ttg`, and `hafu`. Use this before considering non-Sporttery odds in 竞彩 requests.
-- `scripts/fbref_fetch.py`: FBref match-result style data. If `--source auto` falls back to cached `worldfootballR_data`, treat it as historical context only.
-- `scripts/transfermarkt_fetch.py`: Transfermarkt transfer/team/player parsing. Use carefully for national-team analysis; verify players against current squad sources.
-- `scripts/understat_fetch.py`: Understat league/match xG data where supported. If a competition is unsupported, do not infer from unrelated leagues.
+- `scripts/fifa_rating_fetch.py`: FIFA Men's World Ranking. Use `--mode ranking --matchup "Team A vs Team B"` for team strength profiles. FIFA ranking is the primary strength baseline for all teams.
+
+### P1 — Default Run
+
+- `scripts/h2h_fetch.py`: Head-to-head national team records from 11v11.com. Use `--home "Team A" --away "Team B"` for matchup history. Particularly valuable for checking psychological edges between teams.
+- `scripts/bbc_rss_fetch.py`: BBC Sport football RSS fetcher with keyword-based signal extraction. Filters for injury, suspension, squad, and tactical news. Outputs structured signals with severity and category. Use `--days 3 --pretty` to get recent qualitative signals. Label outputs as P4 auxiliary sentiment only.
+
+### P2 — On-Demand
+
+- `scripts/fbref_fetch.py`: FBref match-result style data. If `--source auto` falls back to cached `worldfootballR_data`, treat it as historical context only. Run when P0+P1 evidence is insufficient for a match.
+- `scripts/odds_tracker.py`: Odds movement tracking across Sporttery fetch runs. Use `--action snapshot` after each Sporttery fetch, then `--action movement` to detect significant drift. Large movements (7%+) are strong signals for data-sparse matches. Only useful on second+ analysis of the same fixture date.
 
 Install dependencies only when needed:
 
@@ -79,30 +86,23 @@ Install dependencies only when needed:
 python3 -m pip install -r scripts/requirements.txt
 ```
 
-## New Enhancement Scripts
-
-- `scripts/fifa_rating_fetch.py`: FIFA Men's World Ranking + EA FC (SoFIFA) national team ratings. Use `--mode profile --matchup "Team A vs Team B"` for unified team strength profiles. EA FC ratings are the primary strength proxy for teams without FBref/Understat coverage.
-- `scripts/h2h_fetch.py`: Head-to-head national team records from 11v11.com. Use `--home "Team A" --away "Team B"` for matchup history. Particularly valuable for weak teams where club data is unavailable.
-- `scripts/odds_tracker.py`: Odds movement tracking across Sporttery fetch runs. Use `--action snapshot` after each Sporttery fetch, then `--action movement` to detect significant drift. Large movements (7%+) are strong signals for data-sparse matches.
-- `scripts/bbc_rss_fetch.py`: BBC Sport football RSS fetcher with keyword-based signal extraction. Filters for injury, suspension, squad, and tactical news. Outputs structured signals with severity and category. Use `--days 3 --pretty` to get recent qualitative signals. Label outputs as P5 auxiliary sentiment only.
-
-Usage examples:
+## Usage Examples
 
 ```bash
-# Team strength profiles
-python3 scripts/fifa_rating_fetch.py --mode profile --matchup "Costa Rica vs Ecuador" --pretty
+# FIFA ranking profiles (P0)
+python3 scripts/fifa_rating_fetch.py --mode ranking --matchup "Costa Rica vs Ecuador" --pretty
 
-# Head-to-head
+# Head-to-head (P1)
 python3 scripts/h2h_fetch.py --home "Japan" --away "Australia" --pretty
 
-# Odds snapshot (after sporttery_fetch.py)
+# BBC Sport RSS signals (P1)
+python3 scripts/bbc_rss_fetch.py --days 3 --pretty --output bbc_signals.json
+
+# Odds snapshot (P2, second+ run only)
 python3 scripts/odds_tracker.py --action snapshot --sporttery-file facts_sporttery.json --run-dir work/world-cup-predictor/20260623-1400/
 
-# Odds movement report
+# Odds movement report (P2)
 python3 scripts/odds_tracker.py --action movement --match "日本" --pretty
-
-# BBC Sport RSS signals (last 3 days, pretty output)
-python3 scripts/bbc_rss_fetch.py --days 3 --pretty --output bbc_signals.json
 ```
 
 ## Compact Extraction
@@ -113,10 +113,8 @@ For each source, extract only:
 - fields used in the final decision, including Sporttery poolCode and update time,
 - player names and statuses relevant to the markets,
 - FIFA ranking position, points, and confederation,
-- EA FC overall/attack/midfield/defence ratings,
 - H2H total matches, win rates, goal averages, and trend,
-- Odds movement direction and severity for each key market,
-- Core player star factors (elite players found for each team via `references/core-players.json`),
+- Odds movement direction and severity for each key market (when available),
 - External news signal categories and severity (from BBC RSS or similar feeds),
 - one-line note for data gaps or conflicts.
 

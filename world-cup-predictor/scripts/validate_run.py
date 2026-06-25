@@ -22,13 +22,9 @@ SOURCE_NAME_TOKENS = (
     "Polymarket",
     "FIFA",
     "FBref",
-    "Transfermarkt",
-    "Understat",
     "Covers",
     "Kalshi",
     "Bet365",
-    "SoFIFA",
-    "EAFC",
     "11v11",
     "中国体彩网",
 )
@@ -104,26 +100,25 @@ def validate_facts(facts: dict[str, Any], result: ValidationResult) -> None:
         result.warnings.append("facts.json has no upset_radar; final answer must still include 爆冷雷达")
     if "data_gaps" not in facts:
         result.errors.append("facts.json must include data_gaps, even when empty")
-    # New enhancement fields — warn if missing, don't block
     if "team_profiles" not in facts:
         result.warnings.append(
-            "facts.json has no team_profiles; weak-team predictions may lack "
-            "FIFA ranking / EA FC rating baselines"
+            "facts.json has no team_profiles; FIFA ranking baselines "
+            "will not be available for team strength assessment"
         )
     if "odds_movement" not in facts:
         result.warnings.append(
-            "facts.json has no odds_movement; odds drift signals will not be "
-            "available for upset radar or confidence adjustment"
+            "facts.json has no odds_movement; odds drift signals will not "
+            "be available for upset radar or confidence adjustment"
         )
     if "h2h_data" not in facts:
         result.warnings.append(
             "facts.json has no h2h_data; head-to-head trends will not "
             "support historical context"
         )
-    if "core_players" not in facts:
+    if "independent_judgment" not in facts:
         result.warnings.append(
-            "facts.json has no core_players; elite/star player signals "
-            "will not be available for upset radar or weak-team analysis"
+            "facts.json has no independent_judgment; pre-odds assessment "
+            "will not be available for value-gap analysis"
         )
     if "news_signals" not in facts:
         result.warnings.append(
@@ -180,10 +175,10 @@ def validate_team_profiles(facts: dict[str, Any], result: ValidationResult) -> N
                 f"team_profiles: {team} is marked data-sparse but has "
                 f"insufficient profile data; weak-team prediction will be limited"
             )
-        if tier in ("weak", "mid-low") and not profile.get("eafc_rating"):
+        if tier in ("weak", "mid-low") and not profile.get("fifa_ranking"):
             result.warnings.append(
-                f"team_profiles: {team} is tier={tier} but missing EA FC rating; "
-                f"consider running fifa_rating_fetch.py --mode eafc"
+                f"team_profiles: {team} is tier={tier} but missing FIFA ranking; "
+                f"consider running fifa_rating_fetch.py --mode ranking"
             )
 
 

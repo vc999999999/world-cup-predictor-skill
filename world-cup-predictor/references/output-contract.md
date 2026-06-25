@@ -17,8 +17,7 @@ Every odds-based final answer must satisfy these checks:
 - A bottom `数据来源` section appears immediately before the final disclaimer and contains all source names, URLs, retrieval times, and current/context labels.
 - Each match has a `爆冷雷达` value: `低`, `中`, `高`, or `数据不足`. If exact-score (`crs`) data exists, include the main cold-score reference; if it does not, say score data is unavailable instead of inventing a cold score.
 - The answer includes a compact historical-data conclusion section that explains how past form/results/stats affect the final references.
-- Each match with a data-sparse team (FIFA rank 80+ or EA FC OVR < 68) includes a `球队实力画像` mini-card showing FIFA ranking, EA FC ratings, and strength tier.
-- The `爆冷雷达` incorporates EA FC rating differential and odds movement signals in addition to exact-score prices and handicap direction.
+- Each match with a data-sparse team (FIFA rank 80+) includes a `球队实力画像` mini-card showing FIFA ranking and strength tier.
 - Historical data is labeled as context in the bottom source section with a source/timeframe or explicit "historical context" label; it cannot replace current Sporttery multipliers, current fixtures, or current availability.
 - Missing data is named and reflected in confidence or market exclusion.
 - Run files pass `scripts/validate_run.py` before finalization when a run folder exists. If a final draft file exists, pass it with `--final-answer` so the disclaimer is machine-checked.
@@ -70,32 +69,17 @@ Add `爆冷雷达` for every match:
 
 Treat a "major upset" as an underdog win, a heavy favorite failing to win, or a handicap result that strongly contradicts the main direction. Do not call something a major upset only because the exact-score multiplier is high; it needs football evidence plus market shape.
 
-### Enhanced Upset Signals (Weak-Team Matches)
+### Upset Signals (Data-Sparse / Weak-Team Matches)
 
 In addition to exact-score prices and handicap direction, incorporate these signals:
 
 | Signal | Trigger | Effect on 爆冷雷达 |
 |---|---|---|
-| EA FC rating gap < 5 | Two teams with similar OVR ratings | Increase upset probability; teams closer than ranking suggests |
 | FIFA ranking gap > 40 but tight odds | Strong team not priced as strong | Flag as 中 or 高; market disagrees with ranking |
 | Odds drift toward weak team | Significant movement (7%+) shortening weak team's win price | Increase upset radar; possible insider info |
 | H2H weak-team edge | Underdog has winning H2H record | Mention as psychological factor |
-| Conflicting signals | EA FC says strong, odds say close | Upgrade to 中 or 高 depending on other evidence |
-| Core player star factor | Data-sparse team has elite star (OVR >= 85) while opponent does not | Mention as X-factor; can increase upset probability if star is match-decisive |
-| External news signal | High-severity injury/suspension to key player on either team (from BBC RSS) | Downgrade confidence if elite star affected; upgrade if rival's key player is out |
-
-## Core Player Upset Signals
-
-When `references/core-players.json` shows an elite (OVR >= 85) or star (OVR >= 83) player for a data-sparse team, incorporate this as a `核心球星因素` in the upset radar:
-
-| Scenario | Effect on 爆冷雷达 | Example |
-|---|---|---|
-| Data-sparse team has elite star; opponent has none | Increase upset probability if star is in attack/midfield and in form | South Korea with Son Heung-min vs a mid-tier team without stars |
-| Both teams have elite stars | Neutral; treat as normal match | Argentina vs Brazil (both have multiple elite stars) |
-| Favorite has elite star; underdog does not | Standard analysis; star factor does not change radar | France with Mbappé vs data-sparse team without stars |
-| Elite star injured/ruled out (from news signals) | Downgrade that team's capability | If core_players.json lists a star but news_signals shows injury |
-
-Record the matched players in `facts.json.core_players` and cross-check `facts.json.news_signals` for any injury or suspension affecting them.
+| Conflicting signals | FIFA ranking says strong, odds say close | Upgrade to 中 or 高 depending on other evidence |
+| External news signal | High-severity injury/suspension to key player on either team (from BBC RSS) | Downgrade confidence if key player affected; upgrade if rival's key player is out |
 
 ## Team Strength Profile Card
 
@@ -106,7 +90,6 @@ For each match involving a data-sparse team, include a compact strength profile:
 | 指标 | 主队 | 客队 |
 |---|---|---|
 | FIFA 排名 | 52 (1423.5分) | 87 (1201.0分) |
-| EA FC 评分 | OVR 71 / ATT 68 / MID 72 / DEF 73 | OVR 63 / ATT 60 / MID 65 / DEF 64 |
 | 实力档次 | 中下 | 弱 |
 | H2H 趋势 | 主队略优 (近5场 W3 D1 L1) | |
 | 赔率变动 | 主胜赔率 ↓0.08 (偏向主队) | |
@@ -152,7 +135,6 @@ Use Chinese unless the user requests another language:
 | 指标 | 主队 | 客队 |
 |---|---|---|
 | FIFA 排名 | ... | ... |
-| EA FC 评分 | ... | ... |
 | 实力档次 | ... | ... |
 | H2H 趋势 | ... | ... |
 | 赔率变动 | ... | ... |
